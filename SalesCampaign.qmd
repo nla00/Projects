@@ -1,0 +1,270 @@
+---
+title: "Data Communications: Data Transalation Challenge"
+format: docx
+echo: FALSE
+editor: visual
+---
+
+```{r}
+sales$Quantity <- as.numeric(sales$Quantity)
+sales$PriceEach <- as.numeric(sales$PriceEach)
+sales$ZIP <- as.numeric(sales$ZIP)
+zip_info$ZIP <- as.numeric(zip_info$ZIP)
+products <- unique(sales$Product)
+print(products)
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+
+productlist <- data.frame(
+  Product = c("USB-C Charging Cable", "Bose SoundSport Headphones", "Google Phone", "Wired Headphones", "Macbook Pro Laptop", "Lightning Charging Cable", "27in 4K Gaming Monitor", "AA Batteries (4-pack)", "Apple Airpods Headphones", "AAA Batteries (4-pack)", "iPhone", "Flatscreen TV", "27in FHD Monitor", "20in Monitor", "LG Dryer", "ThinkPad Laptop", "Vareebadd Phone", "LG Washing Machine", "34in Ultrawide Monitor"))
+prodcat1 <- productlist %>%
+  mutate(ProductCategory = case_when(
+    str_detect(Product, "Monitor") ~ "Monitors",
+    str_detect(Product, "Batteries") ~ "Batteries",
+    str_detect(Product, "Headphones") ~ "Headphones",
+    str_detect(Product, "Charging Cable") ~ "Charging Cables",
+    str_detect(Product, "Phone") ~ "Phones",
+    str_detect(Product, "Laptop") ~ "Laptops",
+    str_detect(Product, "TV") ~ "TVs",
+    str_detect(Product, "Washing Machine|Dryer") ~ "Home Appliances",
+    TRUE ~ "Others" ))
+sales <- merge(sales, prodcat1, by = "Product")
+sales <- merge(sales, zip_info, by= "ZIP")
+```
+
+```{r}
+library(vtable)
+vtable(sales, lush = TRUE, factor.limit = 9, char.values = TRUE)
+```
+
+#### **The audience:**
+
+The marketing and sales teams of Amazon. The data could facilitate the development of more efficient marketing strategies and the prioritization of efforts.
+
+#### **The main purpose:**
+
+Determine which product category generates the most revenue, and then identify target demographic and geographic segments for that product. This process was based on a series of data visualizations that showed trends in product category sales, monthly sales growth, and the geographic and demographic distribution of sales.
+
+### Part 1. Analyzing Revenue: Identifying the Most Revenue Product Category
+
+#### 1. Total Sales by Product Category in 2019: Identifying Top Performers
+
+First, I grouped all 19 products into 8 categories which include Monitors, Batteries, Headphones, Charging Cables, Phones, Laptops, TVs and Home Appliances.
+
+The first step in the process is acknowledging that "Batteries" are the best-selling product among 8 product categories, followed by Headphone and Charging Cables.
+
+```{r}
+library(ggplot2) 
+
+product_quantity <- sales %>%
+  group_by(ProductCategory) %>%
+  summarise(TotalQuantity = sum(Quantity))
+
+# Create a bar chart
+ggplot(product_quantity, aes(x = TotalQuantity, y = reorder(ProductCategory,TotalQuantity), fill = ProductCategory))+ geom_bar(stat = "identity", width = 0.7) +
+  scale_fill_manual(values = c("lightpink","lightpink", "lightpink"), 
+  limits = c("Batteries", "Headphones", "Charging Cables")) + theme_classic() +
+  labs(title = "Total Sales by Product Category in 2019:
+       Identifying Top Performers", x = "Total Sales", y = "Product Category") +theme(legend.position = "none") 
+```
+
+#### 2. 2019 Sales Analysis: Laptops Dominating the Market with Strong Revenue Growth
+
+As sales data may not fully reflect the company's long-term potential, it is crucial to examine the revenue earned by each category in 2019. A high level of market potential is evident from the comparison of the revenue share, which shows that the laptop category surpassed all other categories in 2019 by a wide margin.
+
+However, as seen in Figures 1 and 2, the performance of laptop sales is not converting into an equivalent increase in income. It would be wise for the company to change its primary focus and turn its attention away from batteries and towards the laptop category in order to capitalize on the current market demand (technological advancements) and to take advantage of the growing revenue potential associated with this category.
+
+```{r}
+library(lubridate)
+data <- sales %>%
+  mutate(Year = year(DateTime),
+         Month = month(DateTime))
+monthly_sales <- data %>%
+  group_by(ProductCategory, Month) %>%
+  summarise(TotalRevenue = sum(Quantity * PriceEach))
+monthly_sales <- monthly_sales %>%
+  arrange(ProductCategory, Month)
+```
+
+```{r}
+ggplot(monthly_sales, aes(x = Month, y = TotalRevenue, group = ProductCategory, color = ProductCategory)) +
+  geom_line(size = 0.5) +
+  scale_color_manual(values = c( "Laptops" = "blue", "Batteries" = "pink", "Charging Cables" = "grey", "Headphones" = "grey", "Home Appliances" = "grey", "Monitors" = "grey", "Phones" = "grey", "TVs" = "grey")) +
+  labs(title = "2019 Sales Analysis: 
+Laptops Dominating the Market with Strong Revenue Growth",
+       x = "Month",
+       y = "Total Revenue",
+       color = "Product Category") + scale_y_log10(labels = scales::comma)+scale_x_continuous(breaks = 1:12)+ theme_classic() + theme(legend.position = "bottom", legend.box.just = "center")
+```
+
+#### 3. **Monthly Sales Growth Rate in the Laptop Category in 2019**
+
+In the laptop category, we primarily sell two key products: the Mac book Pro and the Think Pad. An important factor in our marketing strategy is understanding the monthly sales growth rate for these products, which enables us to assess their relative performance and devise effective marketing.
+
+According to the graph, the Mac Book Pro had higher positive growth rates, indicating stronger sales growth, in several months (2, 3, 4, 10, and 12) compared to the Think Pad. Considering that the Mac Book Pro is more expensive, the higher sales growth rates indicate that customers are willing to pay more for the Mac Book Pro despite its higher price.
+
+However, the sales growth rates of both products are also similar in terms of patterns. Therefore, we need to conduct further research on the quantity sold to determine the final product that we should focus on.
+
+```{r}
+df_sum <- data %>%
+  filter(Product %in% c("Macbook Pro Laptop", "ThinkPad Laptop"))%>%
+  group_by(Product, Month) %>%
+  summarise(QuantitySold = sum(Quantity))
+
+df <- df_sum %>%
+  arrange(Product, Month) %>%
+  group_by(Product) %>%
+  mutate(SalesGrowth = (QuantitySold - lag(QuantitySold)) / lag(QuantitySold) * 100)
+
+# Plot the monthly sales growth rate
+ggplot(df, aes(x = Month, y = SalesGrowth, color = Product, linetype = Product)) +
+  geom_line() +
+  geom_hline(yintercept = 0, color = "grey", size = 0.2) +
+  scale_color_manual(values = c("Macbook Pro Laptop" = "red", "ThinkPad Laptop" = "black")) +
+  scale_linetype_manual(values = c("Macbook Pro Laptop" = "solid", "ThinkPad Laptop" = "dashed")) +
+  scale_y_continuous(limits = c(-30, 90), breaks = seq(-30, 90, 20)) +
+  labs(title = "Comparing Monthly Sales Growth Rates: MacBook vs. ThinkPad ", y = "Sales Growth Rate (%)", x = "Month", color = "Product") +
+  scale_x_continuous(breaks = 1:12) +
+  theme_classic() +
+  theme(legend.position = "bottom", plot.title.position = "plot")
+```
+
+#### 4. **Monthly Quantity Sold in 2019 - The Mac Book Pro Dominate**s:
+
+We are interested in the quantity sold by Mac book and Think Pad in this phase. The data shows that throughout the whole year of 2019, the Mac Book Pro consistently outperformed the Think Pad in the laptop category. The apparent supremacy of the Mac Book Pro confirms its potential to be a key product to concentrate on.
+
+```{r}
+
+ggplot(df, aes(x = Month, y = QuantitySold, color = Product, linetype = Product)) +
+  geom_line() +
+  scale_color_manual(values = c("Macbook Pro Laptop" = "red", "ThinkPad Laptop" = "black")) +
+  scale_linetype_manual(values = c("Macbook Pro Laptop" = "solid", "ThinkPad Laptop" = "dashed")) +
+  labs(title = "MacBook and ThinkPad: A Comparative Journey through Monthly Sales", y = "Quantity Sold", x = "Month", color = "Product") +
+  scale_x_continuous(breaks = 1:12) +
+  theme_classic() +
+  theme(legend.position = "bottom", 
+        plot.title.position = "plot") 
+
+```
+
+### Part 2: Identify target demographic and geographic segments for Macbook Pro
+
+**High Revenue**: Think Pad generates less revenue per unit sold in comparison to Mac Book Pro due to the higher price point of Mac Book Pro. As a result, even if the Mac Book Pro and Think Pad contributed the same total number of units sold, the Mac Book Pro would still have a greater impact on the revenue.
+
+**Brand Strength and Customer Loyalty:** The Apple brand is well-known for its high quality which has a loyal customer base, with many people who stick with the brand and are more likely upgrade to the newest Apple products. This loyalty can be used to make sales more steady and predictable.
+
+**Cross-selling opportunities:** Customers who purchase Mac Book Pro may be interested in purchasing additional other Apple products: lightning charging cable, Airpods, which can increase revenue of Amazon even further.
+
+Therefore, it is reasonable to focus our marketing efforts on the Mac Book Pro. In this context, we will continue to analyze more about demographic and geographic factors in order to refine our target market. This strategy will effectively prioritize our marketing team's efforts, directing them to allocate resources in the way that maximizes return on investment.
+
+#### **Figure 5. Quantity Sold of Mac Book Pro by Median Age Range**
+
+The results show the top three age groups are 20-25, 25-30, 35-40. By narrowing down our target to the top three age groups that purchased the most Mac Book Pro, we gain valuable insights into potential growth opportunities and can assess the market potential within the cities associated with these age segments since we have information about the geographic locations where this age group resides.
+
+Therefore, we can further analyze the geographic distribution of sales. In this case, the age group of 35 to 40 years old, which accounts for the largest number of Mac Book Pro purchases, includes a significant population residing in major cities such as San Francisco, New York, Atlanta, and Seattle. This information allows us to better understand the concentration of sales and identify key geographic areas where our marketing and sales efforts can be strategically focused to expand our market share.
+
+```{r}
+segment <- sales %>%
+  filter(Product %in% c("Macbook Pro Laptop"))%>%
+  group_by(City, Product, MedianAge) %>%
+  summarize(QuantitySold = sum(Quantity)) %>%
+  arrange(desc(QuantitySold))
+
+```
+
+```{r}
+segment <- data.frame(
+  City = c("San Francisco", "Los Angeles", "New York City", "Boston", "Dallas", "Atlanta", "Seattle", "Portland", "Austin", "Portland2"),
+  Product = rep("Macbook Pro Laptop", 10),
+  MedianAge = c(36.2, 29.1, 36.7, 21.6, 32.1, 37.5, 38.6, 44.3, 29.8, 34.3),
+  QuantitySold = c(1136, 751, 657, 479, 382, 379, 356, 274, 251, 63)
+)
+
+# Create age range categories
+segment$AgeRange <- cut(segment$MedianAge, breaks = c(20, 25, 30, 35, 40, 45, 50), labels = c("20-25", "25-30", "30-35", "35-40", "40-45", "45-50"))
+
+# Aggregate by AgeRange and take top 3
+top3 <- segment %>%
+  group_by(AgeRange) %>%
+  summarise(TotalQuantitySold = sum(QuantitySold)) %>%
+  arrange(desc(TotalQuantitySold)) %>%
+  slice(1:3)
+
+
+# Create the pie chart
+
+ggplot(top3, aes(x = "", y = TotalQuantitySold, fill = AgeRange)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = AgeRange), position = position_stack(vjust = 0.5)) +
+  labs(title = "Top 3 Age Profiles Dominating MacBook Pro Sales") +
+ scale_fill_brewer(palette = "Pastel1") +
+  theme_void() +
+  theme(legend.position = "none") 
+
+```
+
+#### Figure 6. **City Sold - San Francisco Leads**:
+
+We will compare sales per capita rather than total sales of each city in this step because comparing total sales alone may not reflect true sales efficiency, so sales per capita can help identify cities where MacBook Pro laptops are more popular and have higher demand relative to the population.
+
+It reveals that the Mac Book Pro is most popular in San Francisco, indicating that the city's tech-savvy culture might be contributing to its demand. This is followed by New York and Seattle, both of which align with our identified dominant age group (35-40) for Mac Book Pro consumers.
+
+Interestingly, despite Atlanta being within this age group, it doesn't feature among the top cities for Mac Book sales. This suggests a potential opportunity; Atlanta could be an untapped market for us to direct our marketing efforts towards, with the aim to stimulate sales.
+
+However, before we finalize our marketing strategy, it would be beneficial to examine the top 5 cities in terms of per capita income. Given that the Mac Book Pro is a high-priced product, understanding the income distribution can guide us in identifying the most suitable target markets. Therefore, our next step will involve a detailed income-based analysis to refine our marketing focus.
+
+```{r}
+cities1 <- sales %>%
+  filter(Product %in% "Macbook Pro Laptop")%>%
+  group_by(Product, ZIP, City, TotalPopulation) %>%
+  summarize(QuantitySold = sum(Quantity)) %>%
+  arrange(desc(QuantitySold))
+cities1$QuantityPerCapita <- cities1$QuantitySold / cities1$TotalPopulation
+sorted_data <- cities1[order(-cities1$QuantityPerCapita), ]
+sorted_data$QuantityPerCapitaPercent <- sorted_data$QuantityPerCapita * 100
+sorted_data$City <- gsub("San Francisco", "SFran", sorted_data$City)
+sorted_data$City <- gsub("New York City", "New York", sorted_data$City)
+sorted_data$City <- gsub("Los Angeles", "LA", sorted_data$City)
+sorted_data <- sorted_data %>%
+filter(City != "Portland")
+# Plot
+# Plot
+ggplot(sorted_data, aes(x = reorder(City, -QuantityPerCapitaPercent) , y = QuantityPerCapitaPercent, fill = City)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  scale_fill_manual(values = c("SFran" = "orange", "New York" = "orange", "Seattle" = "orange", "Dallas" = "grey", "Boston" = "grey", "Atlanta" = "orange", "LA" = "grey", "Austin" = "grey")) +
+  labs(x = "City", y = "Quantity Sold per Capita %", title = "MacBook Pro Sales per Capita: Analyzing Quantity Sold by City") +  guides(fill = "none") + theme_classic()
+
+```
+
+#### Figure 7. **Top 5 Cities by Per Capita Income - The Affluent Markets**
+
+```{r}
+segment1 <- sales %>%
+  filter(Product %in% c("Macbook Pro Laptop"))%>%
+  group_by(ZIP, City, Product, PCIncome) %>%
+  summarize(QuantitySold = sum(Quantity)) %>%
+  arrange(desc(QuantitySold))
+df123 <- segment1 %>% arrange(desc(PCIncome)) %>% head(5)
+
+# Create a new column for fill that sets all cities to blue
+df123$fill <- "skyblue"
+
+# Plot
+ggplot(df123, aes(x = reorder(City, -PCIncome), y = PCIncome, fill = City)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("steelblue", rep("grey", length(unique(df123$City)) - 1))) +
+  labs(x = "City", y = "Per Capita Income", title = "Top 5 Cities Ranked by Per Capita Income") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), legend.position = "none") +
+  theme_classic() +  guides(fill = "none")
+
+```
+
+The story concludes with San Francisco, New York, and Seattle continue to be among the top cities in terms of both per capita income and Mac Book Pro sales, suggesting a strong correlation.
+
+Atlanta stands out as the city with the highest per capita income among our target cities. However, despite having the highest per capita income of any of our target cities, Atlanta ranks sixth in Mac Book Pro sales per capita (Figure 6). As a result of this disparity, Atlanta's market is underdeveloped and has great potential.
+
+Given the high income of Atlanta's residents, it is evident that expanding our marketing and sales efforts in this city has the potential to generate substantial returns. By targeting those between the ages of 35 and 40 and concentrating our efforts on Atlanta's high-income demographic, we can maximize our returns and drive substantial growth in Mac Book Pro sales.
