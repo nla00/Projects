@@ -1,0 +1,415 @@
+---
+title: "PROJECT 1"
+format: pdf
+editor: visual
+---
+
+## 1. Cleaning Data  
+
+```{r}
+library(rpart)
+library(rpart.plot)
+library(forecast)
+library(caret)
+library(ROSE)
+library(car)
+library(dbplyr)
+library(dplyr)
+```
+
+```{r}
+cars <- read.csv('car_train_class_5.csv', header=TRUE)
+```
+
+```{r}
+cars <- cars[, -c(2)]
+cars <- cars[,c(3,7,10,14,15,18:22,24:27,33,34,36,51,52,55:58)]
+t(t(names(cars)))
+```
+
+```{r}
+# This is to remove the na (but not remove the empty string)
+# The reason empty string exist is similar to reality that some people just lazy and don't want to fill everything. 
+cars <- na.omit(cars)
+
+```
+
+```{r}
+cars[cars == ""] <- "Missing"
+```
+
+```{r}
+cars$price_nom <- factor(cars$price_nom, levels = c('0', '1'), labels = c('low', 'high'))
+```
+
+```{r}
+factor_columns <- c('frame_damaged', 'franchise_dealer', 'fuel_type', 'has_accidents', 'is_cpo', 'is_new', 'is_oemcpo')
+
+cars[factor_columns] <- lapply(cars[factor_columns], factor)
+```
+
+## 2. KNN Model
+
+```{r}
+set.seed(777)
+train_index <- sample(1:nrow(cars), 0.7 * nrow(cars))
+valid_index <- setdiff(1:nrow(cars), train_index)
+```
+
+```{r}
+train_df <- cars[train_index, ]
+valid_df <- cars[valid_index, ]
+```
+
+```{r}
+unique(cars$price_nom)
+```
+
+```{r}
+head(cars)
+table(cars$price_nom)
+```
+
+### 2.1. Normalization
+
+```{r}
+train_norm <- train_df
+valid_norm <- valid_df
+names(train_df)
+```
+
+```{r}
+norm_values <- preProcess(train_df[, -c(23)],
+                          method = c("center",
+                                     "scale"))
+train_norm[, -c(23)] <- predict(norm_values,
+                                train_df[, -c(23)])
+
+head(train_norm)
+```
+
+```{r}
+valid_norm[, -c(23)] <- predict(norm_values,
+                                valid_df[, -c(23)])
+
+head(valid_norm)
+```
+
+```{r}
+train_norm <- mutate_if(train_norm, is.character, as.factor)
+```
+
+```{r}
+knn_model <- caret::knn3(price_nom ~ ., data = train_norm, k = 5)
+knn_model
+```
+
+```{r}
+knn_pred_train <- predict(knn_model, newdata = train_norm[, -c(23)], type = "class")
+head(knn_pred_train)
+```
+
+```{r}
+confusionMatrix(knn_pred_train, as.factor(train_norm[, 23]), positive = "high") # k =5
+```
+
+```{r}
+knn_pred_valid <- predict(knn_model, newdata = valid_norm[, -c(23)], type = "class")
+head(knn_pred_valid)
+```
+
+```{r}
+confusionMatrix(knn_pred_valid, as.factor(valid_norm[, 23]), positive = "high") # k =5
+```
+
+### 2.2. ROC curve
+
+The ROC AUC score shows how well the classifier distinguishes positive and negative classes. It can take value from 0 to 1. A higher ROC AUC indicates a better performance.
+
+```{r}
+ROSE::roc.curve(valid_norm$price_nom, knn_pred_valid)
+```
+
+**Note**: The reason I keep this is that the down side of kNN is that it **CANNOT** predict if there is a lack in variable in any row in the data set.
+
+## 3. Decision Tree Model
+
+#### NOTE: Training &Validation Split has been done in the kNN model.###3.1
+
+### 3.1 Classification Trees
+
+```{r}
+names(train_df)
+```
+
+```{r}
+class_tr <- rpart(price_nom ~ .,
+                  data = train_df, method = "class",
+                  maxdepth = 30)
+```
+
+```{r}
+rpart.plot(class_tr, type=4)
+```
+
+### 3.2 Model Evaluation
+
+#### 3.2.1 Predict the training set
+
+```{r}
+class_tr_train_predict <- predict(class_tr, train_df,
+                                  type = "class")
+
+t(t(head(class_tr_train_predict,10)))
+```
+
+```{r}
+confusionMatrix(class_tr_train_predict, train_df$price_nom, positive = "high")
+```
+
+```{r}
+levels(train_df$price_nom)
+```
+
+#### 3.2.2 Predict the validation set
+
+```{r}
+class_tr_valid_predict <- predict(class_tr, valid_df,
+                                  type = "class")
+t(t(head(class_tr_valid_predict,10)))
+```
+
+```{r}
+confusionMatrix(class_tr_valid_predict, valid_df$price_nom,positive = "high")
+```
+
+### 3.3 Model Evaluation
+
+```{r}
+ROSE::roc.curve(valid_df$price_nom, class_tr_valid_predict)
+```
+
+#### 3.3.1 Weighted sampling
+
+```{r}
+str(train_df)
+```
+
+```{r}
+# List of columns to convert to factors
+columns_to_factorize <- c("frame_damaged", "franchise_dealer", "fuel_type", "has_accidents", "is_cpo", "is_new", "is_oemcpo")
+# Convert all listed columns to factors
+train_df[columns_to_factorize] <- lapply(train_df[columns_to_factorize], as.factor)
+
+```
+
+```{r}
+# List of columns to convert to factors
+columns_to_factorize <- c("frame_damaged", "franchise_dealer", "fuel_type", "has_accidents", "is_cpo", "is_new", "is_oemcpo", "price_nom")
+
+# Convert all listed columns to factors in valid_df
+valid_df[columns_to_factorize] <- lapply(valid_df[columns_to_factorize], as.factor)
+```
+
+```{r}
+train_df_rose <- ROSE(price_nom ~ .,
+                      data = train_df, seed = 666)$data
+
+table(train_df_rose$price_nom)
+```
+
+#### 3.3.1 Weighted data decision tree
+
+```{r}
+class_tr_2 <- rpart(price_nom ~ .,
+                    data = train_df_rose, method = "class",
+                    maxdepth = 10)
+
+rpart.plot(class_tr_2, type = 5)
+```
+
+#### Predict training set
+
+```{r}
+class_tr_2_train_predict <- predict(class_tr_2, train_df_rose,
+                                    type = "class")
+
+summary(class_tr_2_train_predict)
+```
+
+```{r}
+class_tr_2_train_predict <- as.factor(class_tr_2_train_predict)
+train_df_rose$price_nom <- as.factor(train_df_rose$price_nom)
+confusionMatrix(class_tr_2_train_predict, train_df_rose$price_nom, positive = "high")
+```
+
+#### Predict Validation set
+
+```{r}
+class_tr_2_valid_predict <- predict(class_tr_2, valid_df,
+                                    type = "class")
+
+summary(class_tr_2_valid_predict)
+```
+
+```{r}
+class_tr_2_valid_predict <- as.factor(class_tr_2_valid_predict)
+valid_df$price_nom <- as.factor(valid_df$price_nom)
+confusionMatrix(class_tr_2_valid_predict, valid_df$price_nom, positive = "high")
+```
+
+```{r}
+ROSE::roc.curve(valid_df$price_nom, class_tr_2_valid_predict)
+```
+
+## 4. The new prediction
+
+The weighted data decision tree has a higher roc/ higher sensitivy for both the training &validation sets,
+
+```{r}
+cars2 <- read.csv('car_test_5.csv', header=TRUE)
+```
+
+```{r}
+cars2$frame_damaged <- factor(cars2$frame_damaged, levels = levels(train_df_rose$frame_damaged))
+cars2$has_accidents <- factor(cars2$has_accidents, levels = levels(train_df$has_accidents))
+
+```
+
+```{r}
+class2_predict <- predict(class_tr_2, cars2, type = "class")
+class2_predict
+```
+
+```{r}
+car2_predict <- predict(class_tr_2, newdata = cars2, type = "prob")
+car2_predict
+```
+
+## 5. Explantion
+
+### **Brief Problem Description:** 
+
+Lightning McQueen and Mator have the used car business in Radiator Springs, but they're missing one key detail: exact prices for their cars. Instead, they've got a broad 'high' or 'low' price label to work with. They're counting on us to predict these labels accurately, as this will help them market the cars correctly.
+
+### **Objective:** 
+
+The aim is to create a predictive model that can classify used cars into 'high' or 'low' price categories based on the provided data set. Parts of the data will be used in a training and validation process for two models, and the chosen model will play an essential part in predicting the price categories for a new set of customer data sets, which will have a direct impact on the used car marketing and sales strategy of our client.
+
+### **Describe the Data:** 
+
+First, we cleaned the data before making predictions. We checked for gaps and classified the data to help our models understand the difference between a 'high' and a 'low' priced car.
+
+Our extensive dataset includes 30,000 detailed records of used cars, each of which is distinguished by 60 variables. We've narrowed these down to the 23 most influential variables that influence a car's perceived value and, thus, its price category. This includes metrics such as mileage, historical data such as previous accidents, and quality factors such as certification status. We also consider variables that influence customer demand, such as the type of fuel the vehicle use, how long it's been on the market, and whether it's associated with a dealer. These variables we chose are not just random data points; they are factors which can influence a buyer's decision, influencing the price category in the market.
+
+### **The models: kNN and Decision Trees**
+
+First, we set missing values as "missing", important for the k-Nearest Neighbors (kNN) model, which demands a complete dataset. We converted categorical variables into different levels for model interpretation. We split our dataset into training and validation parts to transform our target price variable into 'low' and 'high' categories. This split allows for model training and performance evaluation on separate datasets to ensure good prediction for new customer datasets.
+
+The cleaned dataset is now prepared for the next step: developing and assessing the performance of two predictive models - kNN and Decision Trees.
+
+### **kNN Models**
+
+We selected the kNN because of its effectiveness in classification tasks. It's suitable for datasets with a mix of variable types like ours and classifies based on similarity measures. In the model, we normalized numerical variables to balance their influence and converted categorical variables into factors for kNN. We set k=5 to balance detail capture and overfitting prevention. We also trained our kNN model, tested its accuracy with a confusion matrix, and used a fixed random seed for consistency. The training results appeared intriguing, indicating that our model can effectively differentiate between 'high' and 'low' price categories. A confusion matrix and ROC curves were used to assess the performance of our KNN model. The Accuracy, Specificity, Sensitivity, and ROC curves will be examined for results.
+
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     | *Accuracy* |     | *Specificity* |     | *Sensitivity* |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     | *Training Set* |     | 95.78%     |     | 97.976%       |     | 79.904%       |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     | *Valid Set*    |     | 94.7%      |     | 97.48%        |     | 74.07%        |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+
+**Accuracy:** The model is very good at classifying cars correctly, as shown by its high accuracy rates of 95.78% on the training set and 94.7% on the validation set. Its high accuracy rates show that the model can effectively apply what it has learned from the training data to new, unseen data.
+
+**Specificity:** Both sets of data show that the model has high specificity (97.976% for training and 97.48% for validation), which means it is very good at finding cars that should be labeled as "low" price. In practical terms, this means the model is not quite good at classifying a car as 'high' price unless the data strongly supports it.
+
+**Sensitivity:** The model's sensitivity is 79.904% for training and 74.07% for validation, which is lower than its specificity but still good. This means that the model is pretty good at finding "low" price cars, but not so good at finding "high" price cars. It is slightly less consistent with 'high' price cars, which may affect the business if 'high' price cars are misclassified and undervalued.
+
+**ROC AUC :** An AUC value of 0.858 means that the model does a great job of telling the difference between "low" and "high" price ranges. AUC values that are higher would mean that the ability to tell the difference is even better.
+
+In summary, the kNN model is a dependable method for predicting the price category of cars, yet it shows somewhat reduced sensitivity. There is a need to enhance the model's ability to correctly identify 'high' price cars. This step is important for maximizing profits in the car resale business, as missing out on high-value sales opportunities could result in significant revenue loss, in terms of business.
+
+### **Decision Tree Model**
+
+Next is our DTM, and a classification tree is trained with **maxdepth = 30**. The model is evaluated on both training and validation data sets with confusion matrices and ROC curves.
+
+**Results**
+
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     | *Accuracy* |     | *Specificity* |     | *Sensitivity* |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     | *Training Set* |     | 93.74%     |     | 96.71%,       |     | 72.39%        |    |
+|     |                |     |            |     |               |     |               |    |
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     | *Valid Set*    |     | 93.37%,    |     | 96.53%        |     | 69.86%        |    |
+|     |                |     |            |     |               |     |               |    |
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+
+**Accuracy:** The model achieved 93.74% on the training set and 93.37% on the validation set, showing a strong fit to the data.
+
+**Specificity:** High specificity on both sets (above 96%) shows the model's precision in identifying 'low' price cars.
+
+**Sensitivity:** Sensitivity was lower, suggesting it was less adept at catching 'high' price cars.
+
+### Weighted model results
+
+Based on these results, we decided to use weighted sampling due to its low sensitivity and imbalance which may cause biases later on when we continue with our predictions. Using weighted sampling to address the model's bias towards the 'low' price majority class has improved its performance. The adjustment improved the model's sensitivity, increasing its ability to accurately identify 'high' price cars. This improvement is crucial for the business to prevent revenue loss from undervalued sales.
+
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     | *Accuracy* |     | *Specificity* |     | *Sensitivity* |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     | *Training Set* |     | 88.1%      |     | 82.57%,       |     | 93.52%        |    |
+|     |                |     |            |     |               |     |               |    |
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     | *Valid Set*    |     | 81.29%,    |     | 79.03%        |     | 98.08%        |    |
+|     |                |     |            |     |               |     |               |    |
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+|     |                |     |            |     |               |     |               |    |
++-----+----------------+-----+------------+-----+---------------+-----+---------------+----+
+
+As the table shown above, with sensitivity scores rising to 93.52% in the training set and 98.08% in the validation set, the model has become more valuable for our client\'s business. This means that the weighted model is particularly adept at identifying cars with 'high' prices. The AUC value also supports the strong discriminative ability of the weighted model.
+
+### The chosen model
+
+Lastly, we decided to choose Decision Trees over kNN for several reasons which include its effectives and the comparisons:
+
+1.  Precision in Pricing: The kNN model's sensitivity rate on the validation set was 74.07%, while the decision tree model achieved a very high 98.08%. This high level of precision is crucial for correctly identifying high-value cars, which prevents potential losses from under pricing, thereby ensuring maximum revenue from our sales.
+2.  The insights from the decision tree model align with our client business's approach to differentiate and market cars in 'high' and 'low' price categories. This combination between analysis and strategy enables more targeted marketing efforts and more effective pricing strategies that resonate with market demands.
+3.  The AUC metric of the model confirms its strong discriminating power in distinguishing between the price categories. In a business where differences can have a significant financial impact, the model's great classification capability ensures that pricing decisions are reliable.
+
+Given these reasons, the weighted decision tree model is not only a statistical tool but also a part of our business strategy, allowing us to make data-driven decisions that will enhance profitability and secure our position in the competitive used car market.
+
+### **Predictions for the new customers using your best model**
+
+Our decision tree model has analyzed the new customer data set and provided us with great predictions that will guide our pricing strategy. It has identified cars 1, 4, and 6 as belonging to the 'high' price category. This classification comes with a high probability of about 87.52%, giving us a strong assurance that these vehicles possess the qualities that obtain a premium in the market.
+
+Conversely, cars 2, 3, and 5 are predicted to be 'low' price, with the model assigning a high certainty of approximately 94.77% to these predictions. This level of confidence from the model suggests that these cars, are better positioned for a high price segment of our customer base.
+
+With this information at our service, we can make sure that each car is sold to the right customer at the right price by optimizing the prices of our inventory. These predictions allow us to fine-tune our sales approach, maximizing profitability while meeting the diverse needs of our buyers.
